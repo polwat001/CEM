@@ -9,14 +9,45 @@ import Modal from "../common/Modal";
 import StatusBadge from "../common/StatusBadge";
 import { inputStyle, selectStyle } from "../common/styles";
 
-export default function CompanyModal({ lead, followups, onClose, onSave, onSaveFollowup }) {
+// 1. เพิ่ม props `leads` เข้ามา
+export default function CompanyModal({ lead, leads = [], followups, onClose, onSave, onSaveFollowup }) {
   const [tab, setTab] = useState("info");
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({ ...lead });
   const [showFollowForm, setShowFollowForm] = useState(false);
+  
+  // 2. State สำหรับเก็บ Error เลขซ้ำ
+  const [taxIdError, setTaxIdError] = useState("");
+
   const fups = followups[lead.id] || [];
   const nextSeq = fups.length > 0 ? Math.max(...fups.map(f => f.sequence)) + 1 : 1;
   const [fForm, setFForm] = useState({ sequence: nextSeq, date: today(), detail: "", status: STATUSES[0], nextFollowupDate: "", completed: false });
+
+  // 3. สร้างฟังก์ชันอัปเดตค่าและเช็กเลขซ้ำแยกออกมา (เหมือนใน AddLeadModal)
+  const handleInputChange = (key, value) => {
+    setForm(f => ({ ...f, [key]: value }));
+
+    if (key === "companyNumber") {
+      // เช็กว่าซ้ำไหม โดย "ละเว้นช่องว่าง" และ "ต้องไม่ใช้ ID ของบริษัทตัวเองที่กำลังแก้ไข"
+      const isDuplicate = leads.some(l => l.companyNumber === value && value.trim() !== "" && l.id !== lead.id);
+      
+      if (isDuplicate) {
+        setTaxIdError("⚠️ เลขนิติบุคคลนี้มีอยู่ในระบบแล้ว!");
+      } else {
+        setTaxIdError("");
+      }
+    }
+  };
+
+  // 4. ฟังก์ชันกดบันทึกเพื่อดัก Error
+  const handleSaveInfo = () => {
+    if (taxIdError) {
+      alert("ไม่สามารถบันทึกได้ เนื่องจากเลขนิติบุคคลซ้ำในระบบ");
+      return;
+    }
+    onSave(form);
+    setEditing(false);
+  };
 
   return (
     <Modal title={lead.companyName} onClose={onClose} wide>
@@ -34,27 +65,55 @@ export default function CompanyModal({ lead, followups, onClose, onSave, onSaveF
             {["companyNumber", "companyName", "contactName", "contactPhone", "contactEmail"].map((key, index) => {
               const labels = ["เลขนิติบุคคล", "ชื่อบริษัท", "ชื่อผู้ติดต่อ", "เบอร์โทร", "อีเมล"];
               const lbl = labels[index];
+              
+              // 5. แยกการ Render ของช่อง "เลขนิติบุคคล" เพื่อแสดง Error สีแดง
+              if (key === "companyNumber") {
+                return (
+                  <Field key={key} label={lbl}>
+                    {editing ? (
+                      <>
+                        <input 
+                          value={form[key] || ""} 
+                          onChange={e => handleInputChange(key, e.target.value)} 
+                          style={{ 
+                            ...inputStyle, 
+                            borderColor: taxIdError ? "#ff4d4f" : inputStyle.border 
+                          }} 
+                        />
+                        {taxIdError && <div style={{ color: "#ff4d4f", fontSize: 12, marginTop: 4 }}>{taxIdError}</div>}
+                      </>
+                    ) : (
+                      <p style={{ margin: 0, padding: "6px 0", color: RG.text, fontSize: 14 }}>{form[key] || "—"}</p>
+                    )}
+                  </Field>
+                );
+              }
+
+              // ช่องอื่นๆ ทำงานปกติ
               return (
                 <Field key={key} label={lbl}>
-                  {editing ? <input value={form[key] || ""} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} style={inputStyle} /> : <p style={{ margin: 0, padding: "6px 0", color: RG.text, fontSize: 14 }}>{form[key] || "—"}</p>}
+                  {editing ? <input value={form[key] || ""} onChange={e => handleInputChange(key, e.target.value)} style={inputStyle} /> : <p style={{ margin: 0, padding: "6px 0", color: RG.text, fontSize: 14 }}>{form[key] || "—"}</p>}
                 </Field>
               );
             })}
+            
             {["revenue", "registeredCapital", "profit"].map((key, index) => {
               const labels = ["รายได้รวม (บาท)", "ทุนจดทะเบียน (บาท)", "กำไร (บาท)"];
               const lbl = labels[index];
               return (
                 <Field key={key} label={lbl}>
-                  {editing ? <input type="number" value={form[key] || ""} onChange={e => setForm(f => ({ ...f, [key]: Number(e.target.value) }))} style={inputStyle} /> : <p style={{ margin: 0, padding: "6px 0", color: RG.text, fontSize: 14 }}>{fmtNum(form[key])}</p>}
+                  {editing ? <input type="number" value={form[key] || ""} onChange={e => handleInputChange(key, Number(e.target.value))} style={inputStyle} /> : <p style={{ margin: 0, padding: "6px 0", color: RG.text, fontSize: 14 }}>{fmtNum(form[key])}</p>}
                 </Field>
               );
             })}
           </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          
+          <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
             {editing ? (
               <>
-                <Btn onClick={() => { onSave(form); setEditing(false); }}>บันทึก</Btn>
-                <Btn variant="secondary" onClick={() => { setForm({ ...lead }); setEditing(false); }}>ยกเลิก</Btn>
+                {/* 6. เปลี่ยนไปเรียกฟังก์ชัน handleSaveInfo แทน */}
+                <Btn onClick={handleSaveInfo} disabled={!!taxIdError}>บันทึก</Btn>
+                <Btn variant="secondary" onClick={() => { setForm({ ...lead }); setEditing(false); setTaxIdError(""); }}>ยกเลิก</Btn>
               </>
             ) : (
               <Btn variant="secondary" onClick={() => setEditing(true)}>แก้ไข</Btn>
@@ -64,6 +123,7 @@ export default function CompanyModal({ lead, followups, onClose, onSave, onSaveF
       )}
 
       {tab === "followup" && (
+        // ... (โค้ดส่วน followup คงเดิม ไม่มีการเปลี่ยนแปลง) ...
         <div>
           {fups.length > 0 && (
             <table style={{ width: "100%", borderCollapse: "collapse", marginBottom: 20 }}>
