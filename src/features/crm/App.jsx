@@ -17,6 +17,16 @@ import NotificationsPanel from "./components/modals/NotificationsPanel";
 import Dashboard from "./pages/Dashboard";
 import Reports from "./pages/Reports";
 
+// กำหนดน้ำหนักความสำคัญสำหรับการจัดเรียงข้อมูล
+const PRIORITY_WEIGHT = {
+  "ปิดการขาย": 5,
+  "ด่วนมาก": 4,
+  "มีตติ้ง": 3,
+  "ต้องตามต่อ": 2,
+  "ทั่วไป": 1,
+  "ไม่สนใจ": 0
+};
+
 export default function App() {
   const [authenticated, setAuthenticated] = useState(() => localStorage.getItem("crm_session") === "authenticated");
   const { leads: initLeads, followups: initFollowups } = loadData();
@@ -30,6 +40,10 @@ export default function App() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState([]);
+  
+  // เพิ่ม State สำหรับกรองเฉพาะรายการโปรด
+  const [showFavorites, setShowFavorites] = useState(false);
+  
   const [history, setHistory] = useState([{ leads: initLeads, followups: initFollowups }]);
   const [histIdx, setHistIdx] = useState(0);
   const [markDoneLead, setMarkDoneLead] = useState(null);
@@ -124,6 +138,12 @@ export default function App() {
     updateLeads(newLeads);
   };
 
+  // ฟังก์ชันสลับการติดดาว
+  const toggleStar = (leadId) => {
+    const newLeads = leads.map(l => (l.id === leadId ? { ...l, isStarred: !l.isStarred, updatedAt: new Date().toISOString() } : l));
+    updateLeads(newLeads);
+  };
+
   const deleteSelected = () => {
     const remaining = leads.filter(l => !checked.includes(l.id));
     const newFollowups = { ...followups };
@@ -135,11 +155,30 @@ export default function App() {
 
   const dupNumbers = leads.map(l => l.companyNumber).filter((n, i, arr) => n && arr.indexOf(n) !== i);
 
-  const filtered = leads.filter(l => {
-    if (search && !l.companyName?.toLowerCase().includes(search.toLowerCase()) && !l.companyNumber?.includes(search) && !l.contactPhone?.includes(search) && !l.contactEmail?.toLowerCase().includes(search.toLowerCase())) return false;
-    if (filterStatus.length > 0 && !filterStatus.includes(l.latestStatus)) return false;
-    return true;
-  });
+  // ปรับปรุง logic กรองข้อมูล + เพิ่มการจัดเรียง
+  const filtered = leads
+    .filter(l => {
+      // 1. ค้นหาข้อความ
+      if (search && !l.companyName?.toLowerCase().includes(search.toLowerCase()) && !l.companyNumber?.includes(search) && !l.contactPhone?.includes(search) && !l.contactEmail?.toLowerCase().includes(search.toLowerCase())) return false;
+      // 2. กรองสถานะ
+      if (filterStatus.length > 0 && !filterStatus.includes(l.latestStatus)) return false;
+      // 3. กรองรายการโปรด
+      if (showFavorites && !l.isStarred) return false; 
+      
+      return true;
+    })
+    .sort((a, b) => {
+      // เรียงจากความสำคัญก่อน (มากไปน้อย)
+      const weightA = PRIORITY_WEIGHT[a.latestStatus] || 0;
+      const weightB = PRIORITY_WEIGHT[b.latestStatus] || 0;
+      if (weightB !== weightA) {
+        return weightB - weightA;
+      }
+      // ถ้าความสำคัญเท่ากัน เรียงตามวันที่ติดต่อล่าสุด (ล่าสุดอยู่บน)
+      const dateA = new Date(a.latestContactDate || 0).getTime();
+      const dateB = new Date(b.latestContactDate || 0).getTime();
+      return dateB - dateA;
+    });
 
   const exportJSON = () => {
     const data = JSON.stringify({ leads, followups }, null, 2);
@@ -215,13 +254,30 @@ export default function App() {
               <Btn onClick={() => setShowAddLead(true)}>+ เพิ่มลีดใหม่</Btn>
               {checked.length > 0 && <Btn variant="danger" onClick={() => setShowDeleteConfirm(true)}>🗑 ลบที่เลือก ({checked.length})</Btn>}
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="🔍 ค้นหาบริษัท, เลขนิติบุคคล, เบอร์..." style={{ ...inputStyle, width: 280 }} />
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", borderLeft: `1px solid ${RG.border}`, paddingLeft: 12 }}>
+                {/* ปุ่มแสดงเฉพาะรายการโปรด */}
+                <button 
+                  onClick={() => setShowFavorites(!showFavorites)} 
+                  style={{ 
+                    padding: "4px 10px", borderRadius: 20, 
+                    border: `1.5px solid ${showFavorites ? "#faad14" : RG.border}`, 
+                    background: showFavorites ? "#fffbe6" : "#fff", 
+                    color: showFavorites ? "#d48806" : RG.textMuted, 
+                    fontSize: 12, cursor: "pointer", fontWeight: showFavorites ? 700 : 400, 
+                    fontFamily: "'Sarabun', sans-serif" 
+                  }}
+                >
+                  {showFavorites ? "⭐ กำลังดูรายการโปรด" : "☆ รายการโปรด"}
+                </button>
+
                 {STATUSES.map(s => (
                   <button key={s} onClick={() => setFilterStatus(f => (f.includes(s) ? f.filter(x => x !== s) : [...f, s]))} style={{ padding: "4px 10px", borderRadius: 20, border: `1.5px solid ${filterStatus.includes(s) ? STATUS_COLORS[s] : RG.border}`, background: filterStatus.includes(s) ? STATUS_COLORS[s] + "22" : "#fff", color: filterStatus.includes(s) ? STATUS_COLORS[s] : RG.textMuted, fontSize: 12, cursor: "pointer", fontWeight: filterStatus.includes(s) ? 700 : 400, fontFamily: "'Sarabun', sans-serif" }}>
                     {s}
                   </button>
                 ))}
               </div>
+
               <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
                 <Btn small variant="secondary" onClick={exportJSON}>⬇ Export JSON</Btn>
                 <label style={{ padding: "6px 14px", borderRadius: 8, background: "#f5e6ea", color: RG.primary, border: `1px solid ${RG.border}`, cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
@@ -238,6 +294,8 @@ export default function App() {
                       <th style={{ padding: "12px 10px", textAlign: "center", color: "#fff", fontSize: 13, width: 36 }}>
                         <input type="checkbox" checked={checked.length === filtered.length && filtered.length > 0} onChange={e => setChecked(e.target.checked ? filtered.map(l => l.id) : [])} />
                       </th>
+                      {/* เพิ่ม Column สำหรับติดดาว */}
+                      <th style={{ padding: "12px 8px", color: "#fff", fontSize: 13, width: 36 }} />
                       <th style={{ padding: "12px 8px", color: "#fff", fontSize: 13, width: 36 }} />
                       {["เลขนิติบุคคล", "ชื่อบริษัท", "ผู้ติดต่อ", "เบอร์โทร", "อีเมล", "รายได้รวม", "ทุนจดทะเบียน", "กำไร", "สถานะล่าสุด", "ติดต่อล่าสุด", "ติดตามครั้งถัดไป"].map(h => (
                         <th key={h} style={{ padding: "12px 10px", textAlign: "left", color: "#fff", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap" }}>
@@ -249,7 +307,7 @@ export default function App() {
                   <tbody>
                     {filtered.length === 0 && (
                       <tr>
-                        <td colSpan={13} style={{ textAlign: "center", padding: "40px", color: RG.textMuted }}>
+                        <td colSpan={14} style={{ textAlign: "center", padding: "40px", color: RG.textMuted }}>
                           ไม่พบข้อมูล
                         </td>
                       </tr>
@@ -261,6 +319,12 @@ export default function App() {
                           <td style={{ padding: "8px 10px", textAlign: "center" }}>
                             <input type="checkbox" checked={checked.includes(lead.id)} onChange={e => setChecked(c => (e.target.checked ? [...c, lead.id] : c.filter(x => x !== lead.id)))} />
                           </td>
+                          {/* ปุ่มติดดาว */}
+                          <td style={{ padding: "8px 6px", textAlign: "center" }}>
+                            <button onClick={() => toggleStar(lead.id)} style={{ background: "transparent", border: "none", cursor: "pointer", fontSize: 16 }}>
+                              {lead.isStarred ? "⭐" : "☆"}
+                            </button>
+                          </td>
                           <td style={{ padding: "8px 6px" }}>
                             <button onClick={() => setSelectedLead(lead)} style={{ background: RG.gradient, border: "none", color: "#fff", width: 26, height: 26, borderRadius: 6, cursor: "pointer", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "center" }}>👁</button>
                           </td>
@@ -270,7 +334,7 @@ export default function App() {
                               {isDup && <span style={{ background: "#ffeeee", color: RG.danger, fontSize: 10, padding: "1px 6px", borderRadius: 10, border: "1px solid #ffcccc", whiteSpace: "nowrap" }}>ซ้ำ!</span>}
                             </div>
                           </td>
-                          <td style={{ padding: "8px 10px" }}><EditableCell value={lead.companyName} onSave={v => inlineEdit(lead.id, "companyName", v)} /></td>
+                          <td style={{ padding: "8px 10px", fontWeight: lead.isStarred ? 600 : 400 }}><EditableCell value={lead.companyName} onSave={v => inlineEdit(lead.id, "companyName", v)} /></td>
                           <td style={{ padding: "8px 10px" }}><EditableCell value={lead.contactName} onSave={v => inlineEdit(lead.id, "contactName", v)} /></td>
                           <td style={{ padding: "8px 10px" }}><EditableCell value={lead.contactPhone} onSave={v => inlineEdit(lead.id, "contactPhone", v)} /></td>
                           <td style={{ padding: "8px 10px" }}><EditableCell value={lead.contactEmail} onSave={v => inlineEdit(lead.id, "contactEmail", v)} /></td>
@@ -322,9 +386,11 @@ export default function App() {
         </Modal>
       )}
 
-      {showAddLead && <AddLeadModal onClose={() => setShowAddLead(false)} onSave={addLead} />}
+      {/* ส่ง leads={leads} ไปให้ AddLeadModal เพื่อตรวจสอบเลขนิติบุคคลซ้ำ */}
+      {showAddLead && <AddLeadModal leads={leads} onClose={() => setShowAddLead(false)} onSave={addLead} />}
 
-      {selectedLead && <CompanyModal lead={selectedLead} followups={followups} onClose={() => setSelectedLead(null)} onSave={saveLead} onSaveFollowup={saveFollowup} />}
+      {/* ส่ง leads={leads} ไปให้ CompanyModal เพื่อตรวจสอบเลขนิติบุคคลซ้ำ */}
+      {selectedLead && <CompanyModal lead={selectedLead} leads={leads} followups={followups} onClose={() => setSelectedLead(null)} onSave={saveLead} onSaveFollowup={saveFollowup} />}
 
       {showDeleteConfirm && (
         <Modal title="ยืนยันการลบ" onClose={() => setShowDeleteConfirm(false)}>
